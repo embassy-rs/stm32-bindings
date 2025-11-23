@@ -3,7 +3,6 @@ target_ci
 target_ci_stable
 Cargo.lock
 third_party
-/Cargo.toml
 out/
 # editor artifacts
 .zed
@@ -11,3 +10,4 @@ out/
 *.vim
 **/.idea
 sources
+build

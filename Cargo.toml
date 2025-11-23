@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "stm32-bindings-gen",
+]
+exclude = [
+    "build"
+]
+
+# Optimize for dev experience: shortest "build+run" time after making a small change.
+[profile.release]
+debug = true
+incremental = true
+panic = 'abort'
+opt-level = 2

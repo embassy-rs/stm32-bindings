@@ -1,0 +1,13 @@
+[package]
+name = "stm32-bindings-gen"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+
+[dependencies]
+regex = "1.7.1"
+serde = { version = "1.0.157", features = [ "derive" ] }
+serde_json = "1.0.94"
+proc-macro2 = "1.0.52"
+bindgen = "0.72.1"

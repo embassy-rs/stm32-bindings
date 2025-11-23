@@ -1,9 +1,10 @@
 #![no_std]
+#![allow(non_snake_case)]
+#![allow(unused)]
+#![allow(non_camel_case_types)]
+#![doc(html_no_source)]
 
 mod generated {
-    #![allow(non_upper_case_globals)]
-    #![allow(non_camel_case_types)]
-    #![allow(non_snake_case)]
 
     mod std {
         pub mod os {
