@@ -19,16 +19,25 @@ impl ParseCallbacks for UppercaseCallbacks {
 pub struct Options {
     pub out_dir: PathBuf,
     pub sources_dir: PathBuf,
+}
+
+pub struct Library {
+    pub sources_dir: PathBuf,
     pub target_triple: String,
+    pub header: &'static [u8],
+    pub module: &'static str,
+    pub includes: Vec<PathBuf>,
+    pub library: PathBuf,
 }
 
 pub struct Gen {
     opts: Options,
+    libs: Vec<Library>,
 }
 
 impl Gen {
-    pub fn new(opts: Options) -> Self {
-        Self { opts }
+    pub fn new(opts: Options, libs: Vec<Library>) -> Self {
+        Self { opts, libs }
     }
 
     pub fn run_gen(&mut self) {
@@ -36,86 +45,93 @@ impl Gen {
         fs::create_dir_all(self.opts.out_dir.join("src/bindings")).unwrap();
         fs::create_dir_all(self.opts.out_dir.join("src/lib")).unwrap();
 
-        // Create a named temporary file
-        let mut header = NamedTempFile::new().unwrap();
+        for lib in &self.libs {
+            let sources_dir = self.opts.sources_dir.join(&lib.sources_dir);
 
-        // Write some data to the first handle
-        header
-            .write_all(include_bytes!("../inc/wpan-wba.h"))
-            .unwrap();
+            // Create a named temporary file
+            let mut header = NamedTempFile::with_suffix(".h").unwrap();
 
-        header.reopen().unwrap();
+            // Write some data to the first handle
+            header.write_all(lib.header).unwrap();
 
-        // The bindgen::Builder is the main entry point
-        // to bindgen, and lets you build up options for
-        // the resulting bindings.
-        let target_flag = format!("--target={}", self.opts.target_triple);
-        let include_arg = format!(
-            "-I{}/Middlewares/ST/STM32_WPAN/mac_802_15_4/core/inc",
-            self.opts.sources_dir.to_str().unwrap()
-        );
-        let mut builder = bindgen::Builder::default()
-            .parse_callbacks(Box::new(UppercaseCallbacks))
-            // Force Clang to use the same layout as the selected target.
-            .clang_arg(&target_flag)
-            .clang_arg(&include_arg);
-        if self
-            .opts
-            .target_triple
-            .to_ascii_lowercase()
-            .starts_with("thumb")
-        {
-            builder = builder.clang_arg("-mthumb");
-        }
-        let bindings = builder
-            // The input header we would like to generate
-            // bindings for.
-            .header("stm32-bindings-gen/inc/wpan-wba.h")
-            // Finish the builder and generate the bindings.
-            .generate()
-            // Unwrap the Result and panic on failure.
-            .expect("Unable to generate bindings");
+            // The bindgen::Builder is the main entry point
+            // to bindgen, and lets you build up options for
+            // the resulting bindings.
+            let target_flag = format!("--target={}", lib.target_triple);
 
-        let out_path = self.opts.out_dir.join("src/bindings/wpan_wba.rs");
+            let mut builder = bindgen::Builder::default()
+                .parse_callbacks(Box::new(UppercaseCallbacks))
+                // Force Clang to use the same layout as the selected target.
+                .clang_arg(&target_flag);
 
-        bindings
-            .write_to_file(&out_path)
-            .expect("Couldn't write bindings!");
+            for include_arg in &lib.includes {
+                builder = builder.clang_arg(&format!(
+                    "-I{}",
+                    sources_dir.join(include_arg).to_str().unwrap()
+                ));
+            }
 
-        let mut file_contents = fs::read_to_string(&out_path).unwrap();
-        file_contents = file_contents
-            .replace("::std::mem::", "::core::mem::")
-            .replace("::std::os::raw::", "::core::ffi::")
-            .replace("::std::option::", "::core::option::");
+            if lib.target_triple.to_ascii_lowercase().starts_with("thumb") {
+                builder = builder.clang_arg("-mthumb");
+            }
+            let bindings = builder
+                // The input header we would like to generate
+                // bindings for.
+                .header(header.path().to_str().unwrap())
+                // Finish the builder and generate the bindings.
+                .generate()
+                // Unwrap the Result and panic on failure.
+                .expect("Unable to generate bindings");
 
-        file_contents = file_contents
-            .lines()
-            .map(|line| {
-                if let Some(rest) = line.strip_prefix("pub const ") {
-                    if let Some((name, tail)) = rest.split_once(':') {
-                        let upper = name.trim().to_ascii_uppercase();
-                        return format!("pub const {}:{}", upper, tail);
+            let out_path = self
+                .opts
+                .out_dir
+                .join("src")
+                .join("bindings")
+                .join(format!("{}.rs", lib.module));
+
+            bindings
+                .write_to_file(&out_path)
+                .expect("Couldn't write bindings!");
+
+            let mut file_contents = fs::read_to_string(&out_path).unwrap();
+            file_contents = file_contents
+                .replace("::std::mem::", "::core::mem::")
+                .replace("::std::os::raw::", "::core::ffi::")
+                .replace("::std::option::", "::core::option::");
+
+            file_contents = file_contents
+                .lines()
+                .map(|line| {
+                    if let Some(rest) = line.strip_prefix("pub const ") {
+                        if let Some((name, tail)) = rest.split_once(':') {
+                            let upper = name.trim().to_ascii_uppercase();
+                            return format!("pub const {}:{}", upper, tail);
+                        }
                     }
-                }
-                line.to_owned()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+                    line.to_owned()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
 
-        if !file_contents.ends_with('\n') {
-            file_contents.push('\n');
+            if !file_contents.ends_with('\n') {
+                file_contents.push('\n');
+            }
+
+            fs::write(&out_path, file_contents).unwrap();
+
+            // copy misc files
+            fs::copy(
+                sources_dir.join(&lib.library),
+                self.opts
+                    .out_dir
+                    .join("src")
+                    .join("lib")
+                    .join(format!("{}.a", lib.module)),
+            )
+            .unwrap();
         }
 
-        fs::write(&out_path, file_contents).unwrap();
-
-        // copy misc files
-        fs::copy(
-            self.opts
-                .sources_dir
-                .join("Middlewares/ST/STM32_WPAN/mac_802_15_4/lib/wba_mac_lib.a"),
-            self.opts.out_dir.join("src/lib/wba_mac_lib.a"),
-        )
-        .unwrap();
         fs::write(
             self.opts.out_dir.join("README.md"),
             include_bytes!("../res/README.md"),

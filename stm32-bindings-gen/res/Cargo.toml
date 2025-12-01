@@ -1,6 +1,6 @@
 [package]
 name = "stm32-bindings"
-version = "18.0.0"
+version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/stm32-data"
@@ -15,8 +15,8 @@ include = [
 ]
 
 [package.metadata.docs.rs]
-features = ["stm32h755zi-cm7", "pac", "metadata"]
-default-target = "thumbv7em-none-eabihf"
+features = []
+default-target = "thumbv8m.main-none-eabihf"
 targets = []
 rustdoc-args = ["--cfg", "docsrs"]
 
@@ -52,6 +52,10 @@ defmt = { version = "0.3.0", optional = true }
 
 [features]
 default = ["pac"]
+
+wba_wpan_mac = []
+wba_wpan_ble = []
+n6_ai_runtime = []
 
 # Build the actual PAC. Set by default.
 # If you just want the metadata, unset it with `default-features = false`. 
