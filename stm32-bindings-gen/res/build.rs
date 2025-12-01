@@ -6,7 +6,7 @@ fn main() {
 
     println!(
         "cargo:rustc-link-search=native={}",
-        crate_dir.join("src/lib").to_str().unwrap()
+        crate_dir.join("src").join("lib").to_str().unwrap()
     );
-    println!("cargo:rustc-link-lib=static=wba_mac_lib");
+    println!("cargo:rustc-link-lib=wba_mac_lib");
 }

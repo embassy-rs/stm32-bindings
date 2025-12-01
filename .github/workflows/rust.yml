@@ -29,4 +29,6 @@ jobs:
     - name: Load sources
       run: ./d download-all
     - name: Run build
-      run: cargo run --release --bin stm32-bindings-gen
+      run: cargo run --release --bin stm32-bindings-gen -- --target=thumbv8m.main-none-eabihf
+    - name: Run package build
+      run: cd build/stm32-bindings && cargo build --target=thumbv8m.main-none-eabihf
