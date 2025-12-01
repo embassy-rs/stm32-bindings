@@ -1,10 +1,25 @@
+use bindgen::callbacks::{ItemInfo, ItemKind, ParseCallbacks};
 use std::io::Write;
 use std::{fs, path::PathBuf};
 use tempfile::NamedTempFile;
 
+#[derive(Debug)]
+struct UppercaseCallbacks;
+
+impl ParseCallbacks for UppercaseCallbacks {
+    fn item_name(&self, item: ItemInfo<'_>) -> Option<String> {
+        if matches!(item.kind, ItemKind::Var) {
+            Some(item.name.to_ascii_uppercase())
+        } else {
+            None
+        }
+    }
+}
+
 pub struct Options {
     pub out_dir: PathBuf,
     pub sources_dir: PathBuf,
+    pub target_triple: String,
 }
 
 pub struct Gen {
@@ -34,11 +49,25 @@ impl Gen {
         // The bindgen::Builder is the main entry point
         // to bindgen, and lets you build up options for
         // the resulting bindings.
-        let bindings = bindgen::Builder::default()
-            .clang_arg(format!(
-                "-I{}/Middlewares/ST/STM32_WPAN/mac_802_15_4/core/inc",
-                self.opts.sources_dir.to_str().unwrap()
-            ))
+        let target_flag = format!("--target={}", self.opts.target_triple);
+        let include_arg = format!(
+            "-I{}/Middlewares/ST/STM32_WPAN/mac_802_15_4/core/inc",
+            self.opts.sources_dir.to_str().unwrap()
+        );
+        let mut builder = bindgen::Builder::default()
+            .parse_callbacks(Box::new(UppercaseCallbacks))
+            // Force Clang to use the same layout as the selected target.
+            .clang_arg(&target_flag)
+            .clang_arg(&include_arg);
+        if self
+            .opts
+            .target_triple
+            .to_ascii_lowercase()
+            .starts_with("thumb")
+        {
+            builder = builder.clang_arg("-mthumb");
+        }
+        let bindings = builder
             // The input header we would like to generate
             // bindings for.
             .header("stm32-bindings-gen/inc/wpan-wba.h")
@@ -53,11 +82,29 @@ impl Gen {
             .write_to_file(&out_path)
             .expect("Couldn't write bindings!");
 
-        let file_contents = fs::read_to_string(&out_path).unwrap();
-        let file_contents = file_contents
+        let mut file_contents = fs::read_to_string(&out_path).unwrap();
+        file_contents = file_contents
             .replace("::std::mem::", "::core::mem::")
             .replace("::std::os::raw::", "::core::ffi::")
             .replace("::std::option::", "::core::option::");
+
+        file_contents = file_contents
+            .lines()
+            .map(|line| {
+                if let Some(rest) = line.strip_prefix("pub const ") {
+                    if let Some((name, tail)) = rest.split_once(':') {
+                        let upper = name.trim().to_ascii_uppercase();
+                        return format!("pub const {}:{}", upper, tail);
+                    }
+                }
+                line.to_owned()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if !file_contents.ends_with('\n') {
+            file_contents.push('\n');
+        }
 
         fs::write(&out_path, file_contents).unwrap();
 
