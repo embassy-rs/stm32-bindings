@@ -19,6 +19,7 @@ impl ParseCallbacks for UppercaseCallbacks {
 pub struct Options {
     pub out_dir: PathBuf,
     pub sources_dir: PathBuf,
+    pub target_triple: String,
 }
 
 pub struct Gen {
@@ -48,14 +49,25 @@ impl Gen {
         // The bindgen::Builder is the main entry point
         // to bindgen, and lets you build up options for
         // the resulting bindings.
-        let bindings = bindgen::Builder::default()
+        let target_flag = format!("--target={}", self.opts.target_triple);
+        let include_arg = format!(
+            "-I{}/Middlewares/ST/STM32_WPAN/mac_802_15_4/core/inc",
+            self.opts.sources_dir.to_str().unwrap()
+        );
+        let mut builder = bindgen::Builder::default()
             .parse_callbacks(Box::new(UppercaseCallbacks))
-            // Force Clang to use the same 32-bit target layout as the firmware.
-            .clang_args(["--target=thumbv8m.main-none-eabihf", "-mthumb"])
-            .clang_arg(format!(
-                "-I{}/Middlewares/ST/STM32_WPAN/mac_802_15_4/core/inc",
-                self.opts.sources_dir.to_str().unwrap()
-            ))
+            // Force Clang to use the same layout as the selected target.
+            .clang_arg(&target_flag)
+            .clang_arg(&include_arg);
+        if self
+            .opts
+            .target_triple
+            .to_ascii_lowercase()
+            .starts_with("thumb")
+        {
+            builder = builder.clang_arg("-mthumb");
+        }
+        let bindings = builder
             // The input header we would like to generate
             // bindings for.
             .header("stm32-bindings-gen/inc/wpan-wba.h")
