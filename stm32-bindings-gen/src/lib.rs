@@ -16,6 +16,8 @@ const STD_TO_CORE_REPLACEMENTS: &[(&str, &str)] = &[
     (":: std :: ptr ::", ":: core :: ptr ::"),
 ];
 
+const NEWLIB_SHARED_OPAQUES: &[&str] = &["_reent", "__sFILE", "__sFILE64"];
+
 #[derive(Debug, Clone, Copy)]
 struct BindingSpec {
     module: &'static str,
@@ -270,6 +272,10 @@ impl Gen {
 
         for arg in spec.clang_args {
             builder = builder.clang_arg(*arg);
+        }
+
+        for ty in NEWLIB_SHARED_OPAQUES {
+            builder = builder.opaque_type(ty);
         }
 
         for arg in arm_sysroot_args() {
