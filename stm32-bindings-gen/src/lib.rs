@@ -1,7 +1,9 @@
 use bindgen::callbacks::{ItemInfo, ItemKind, ParseCallbacks};
+use std::collections::BTreeSet;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::{fs, io};
+use std::process::{Command, Stdio};
+use std::{env, fs};
 
 const STD_TO_CORE_REPLACEMENTS: &[(&str, &str)] = &[
     ("::std::mem::", "::core::mem::"),
@@ -270,6 +272,10 @@ impl Gen {
             builder = builder.clang_arg(*arg);
         }
 
+        for arg in arm_sysroot_args() {
+            builder = builder.clang_arg(arg);
+        }
+
         if !spec.allowlist.is_empty() {
             for pattern in spec.allowlist {
                 builder = builder
@@ -393,4 +399,162 @@ impl Gen {
     fn is_thumb_target(triple: &str) -> bool {
         triple.trim().to_ascii_lowercase().starts_with("thumb")
     }
+}
+
+fn arm_sysroot_args() -> Vec<String> {
+    let mut args = Vec::new();
+    let mut system_include_paths = BTreeSet::new();
+
+    let mut push_sysroot = |path: &Path| {
+        system_include_paths.insert(path.join("include"));
+        system_include_paths.insert(path.join("include-fixed"));
+        system_include_paths.insert(path.join("usr/include"));
+        system_include_paths.insert(path.join("usr/include/newlib"));
+        system_include_paths.insert(path.join("arm-none-eabi/include"));
+
+        let arg = format!("--sysroot={}", path.display());
+        if !args.iter().any(|existing| existing == &arg) {
+            args.push(arg);
+        }
+    };
+
+    if let Some(sysroot_os) = env::var_os("ARM_NONE_EABI_SYSROOT") {
+        let sysroot_path = PathBuf::from(&sysroot_os);
+        if sysroot_path.exists() {
+            push_sysroot(sysroot_path.as_path());
+        }
+    }
+
+    if let Some(sysroot) = gcc_query(&["-print-sysroot"]) {
+        let sysroot = sysroot.trim();
+        if !sysroot.is_empty() {
+            push_sysroot(Path::new(sysroot));
+        }
+    }
+
+    if let Some(include_dir) = gcc_query(&["-print-file-name=include"]) {
+        let include_dir = include_dir.trim();
+        if !include_dir.is_empty() && include_dir != "include" {
+            system_include_paths.insert(PathBuf::from(include_dir));
+        }
+    }
+
+    if let Some(libgcc) = gcc_query(&["-print-libgcc-file-name"]) {
+        let libgcc_path = Path::new(libgcc.trim());
+        if let Some(version_dir) = libgcc_path.parent() {
+            system_include_paths.insert(version_dir.join("include"));
+            system_include_paths.insert(version_dir.join("include-fixed"));
+
+            if let Some(toolchain_root) = version_dir.parent() {
+                if let Some(version) = version_dir.file_name().and_then(|name| name.to_str()) {
+                    system_include_paths
+                        .insert(toolchain_root.join("include").join("c++").join(version));
+                    system_include_paths.insert(
+                        toolchain_root
+                            .join("include")
+                            .join("c++")
+                            .join(version)
+                            .join("arm-none-eabi"),
+                    );
+                }
+            }
+        }
+    }
+
+    for path in gcc_include_search_paths() {
+        system_include_paths.insert(path);
+    }
+
+    if let Some(extra) = env::var_os("ARM_NONE_EABI_INCLUDE") {
+        for path in env::split_paths(&extra) {
+            system_include_paths.insert(path);
+        }
+    }
+
+    for path in system_include_paths {
+        if path.exists() {
+            let flag = format!("-isystem{}", path.display());
+            if !args.contains(&flag) {
+                args.push(flag);
+            }
+        }
+    }
+
+    args
+}
+
+fn gcc_include_search_paths() -> Vec<PathBuf> {
+    let mut command = Command::new("arm-none-eabi-gcc");
+    command.args(["-xc", "-E", "-Wp,-v", "-"]);
+    command.stdin(Stdio::piped());
+    command.stdout(Stdio::null());
+    command.stderr(Stdio::piped());
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(_) => return Vec::new(),
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"\n");
+    }
+
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(_) => return Vec::new(),
+    };
+
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    let stderr = match String::from_utf8(output.stderr) {
+        Ok(text) => text,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut paths = Vec::new();
+    let mut capture = false;
+
+    for line in stderr.lines() {
+        if line.contains("#include <...> search starts here:") {
+            capture = true;
+            continue;
+        }
+        if capture {
+            if line.contains("End of search list.") {
+                break;
+            }
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let trimmed = trimmed.trim_start_matches("(framework directory) ");
+            let trimmed = trimmed.trim_end_matches(" (framework directory)");
+            if trimmed.is_empty() {
+                continue;
+            }
+            let candidate = PathBuf::from(trimmed);
+            if candidate.is_relative() {
+                continue;
+            }
+            paths.push(candidate);
+        }
+    }
+
+    paths
+}
+
+fn gcc_query(args: &[&str]) -> Option<String> {
+    let mut command = Command::new("arm-none-eabi-gcc");
+    for arg in args {
+        command.arg(arg);
+    }
+    command.output().ok().and_then(|output| {
+        if output.status.success() {
+            String::from_utf8(output.stdout).ok()
+        } else {
+            None
+        }
+    })
 }
