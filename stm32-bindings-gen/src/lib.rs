@@ -1,121 +1,10 @@
 use bindgen::callbacks::{ItemInfo, ItemKind, ParseCallbacks};
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::{fs, io};
-
-const STD_TO_CORE_REPLACEMENTS: &[(&str, &str)] = &[
-    ("::std::mem::", "::core::mem::"),
-    ("::std::os::raw::", "::core::ffi::"),
-    ("::std::option::", "::core::option::"),
-    ("::std::ptr::", "::core::ptr::"),
-    (":: std :: mem ::", ":: core :: mem ::"),
-    (":: std :: os :: raw ::", ":: core :: ffi ::"),
-    (":: std :: option ::", ":: core :: option ::"),
-    (":: std :: ptr ::", ":: core :: ptr ::"),
-];
-
-#[derive(Debug, Clone, Copy)]
-struct BindingSpec {
-    module: &'static str,
-    feature: Option<&'static str>,
-    header: &'static str,
-    include_dirs: &'static [&'static str],
-    clang_args: &'static [&'static str],
-    allowlist: &'static [&'static str],
-    aliases: &'static [&'static str],
-    library_artifacts: &'static [LibraryArtifact],
-}
-
-#[derive(Debug, Clone, Copy)]
-struct LibraryArtifact {
-    source: &'static str,
-    destination: &'static str,
-}
-
-const BINDING_SPECS: &[BindingSpec] = &[
-    BindingSpec {
-        module: "wba_wpan_mac",
-        feature: Some("wba_wpan_mac"),
-        header: "stm32-bindings-gen/inc/wba_wpan_mac.h",
-        include_dirs: &[
-            "Middlewares/ST/STM32_WPAN",
-            "Middlewares/ST/STM32_WPAN/mac_802_15_4/core/inc",
-            "Middlewares/ST/STM32_WPAN/mac_802_15_4/mac_utilities/inc",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/_40nm_reg_files",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/ot_inc",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config/ieee_15_4_basic",
-            "Drivers/CMSIS/Core/Include",
-        ],
-        clang_args: &["-DSUPPORT_MAC=1", "-DMAC=1", "-DMAC_LAYER=1"],
-        allowlist: &[],
-        aliases: &["mac", "mac_802_15_4", "wpan_wba"],
-        library_artifacts: &[
-            LibraryArtifact {
-                source: "Middlewares/ST/STM32_WPAN/mac_802_15_4/lib",
-                destination: "src/lib/wba_wpan_mac",
-            },
-            LibraryArtifact {
-                source: "Middlewares/ST/STM32_WPAN/mac_802_15_4/lib/wba_mac_lib.a",
-                destination: "src/lib/wba_mac_lib.a",
-            },
-            LibraryArtifact {
-                source: "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/lib",
-                destination: "src/lib/link_layer",
-            },
-        ],
-    },
-    BindingSpec {
-        module: "ble_stack",
-        feature: Some("wba_wpan_ble"),
-        header: "stm32-bindings-gen/inc/ble-wba.h",
-        include_dirs: &[
-            "Middlewares/ST/STM32_WPAN",
-            "Middlewares/ST/STM32_WPAN/ble/stack/include",
-            "Middlewares/ST/STM32_WPAN/ble/stack/include/auto",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/_40nm_reg_files",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/ot_inc",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config/ble_basic_plus",
-            "Middlewares/ST/STM32_WPAN/ble/audio/Inc",
-            "Middlewares/ST/STM32_WPAN/ble/codec/codec_manager/Inc",
-            "Middlewares/ST/STM32_WPAN/ble/codec/lc3/Inc",
-            "Drivers/CMSIS/Core/Include",
-        ],
-        clang_args: &[
-            "-DBLE=1",
-            "-DBLE_LL=1",
-            "-DMAC=1",
-            "-DMAC_LAYER=1",
-            "-DSUPPORT_CONFIG_LIB=1",
-            "-DSUPPORT_OPENTHREAD_1_2=1",
-            "-DSUPPORT_ANT_DIV=1",
-            "-DEXT_ADDRESS_LENGTH=8",
-        ],
-        allowlist: &[],
-        aliases: &["ble", "ble_wba"],
-        library_artifacts: &[
-            LibraryArtifact {
-                source: "Middlewares/ST/STM32_WPAN/ble/stack/lib",
-                destination: "src/lib/ble/stack",
-            },
-            LibraryArtifact {
-                source: "Middlewares/ST/STM32_WPAN/ble/audio/lib",
-                destination: "src/lib/ble/audio",
-            },
-            LibraryArtifact {
-                source: "Middlewares/ST/STM32_WPAN/ble/codec/codec_manager/Lib",
-                destination: "src/lib/ble/codec_manager",
-            },
-            LibraryArtifact {
-                source: "Middlewares/ST/STM32_WPAN/ble/codec/lc3/Lib",
-                destination: "src/lib/ble/lc3",
-            },
-        ],
-    },
-];
+use std::io::Write;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+use tempfile::NamedTempFile;
 
 #[derive(Debug)]
 struct UppercaseCallbacks;
@@ -180,12 +69,24 @@ impl Gen {
             self.generate_bindings_for_spec(spec);
             self.copy_artifacts_for_spec(spec);
 
-            modules.push((spec.module.to_owned(), spec.feature.map(str::to_owned)));
-            for alias in spec.aliases {
-                aliases.push((
-                    spec.module.to_owned(),
-                    alias.to_string(),
-                    spec.feature.map(str::to_owned),
+            // The bindgen::Builder is the main entry point
+            // to bindgen, and lets you build up options for
+            // the resulting bindings.
+            let target_flag = format!("--target={}", lib.target_triple);
+
+            let mut builder = bindgen::Builder::default()
+                .parse_callbacks(Box::new(UppercaseCallbacks))
+                // Force Clang to use the same layout as the selected target.
+                .clang_arg(&target_flag);
+
+            let crate_inc = Path::new(env!("CARGO_MANIFEST_DIR")).join("inc");
+            builder = builder.clang_arg(&format!("-iquote{}", crate_inc.display()));
+            builder = builder.clang_arg(&format!("-I{}", crate_inc.display()));
+
+            for include_arg in &lib.includes {
+                builder = builder.clang_arg(&format!(
+                    "-I{}",
+                    sources_dir.join(include_arg).to_str().unwrap()
                 ));
             }
         }
