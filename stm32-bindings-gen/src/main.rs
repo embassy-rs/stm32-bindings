@@ -12,9 +12,11 @@ fn main() {
         sources_dir,
         target_triple,
     };
+
     Gen::new(opts).run_gen();
 }
 
+#[allow(dead_code)]
 fn resolve_target_triple() -> String {
     let mut args = env::args().skip(1);
     let mut positional: Option<String> = None;

@@ -6,17 +6,15 @@ param (
     [string]$peri
 )
 
-$REV = "8382ecbcc976ab5e91070b386700dbfd1e654275"
+$REV = "v1.8.0"
 
 Switch ($CMD) {
     "gen" {
-        cargo run --release stm32-bindings-gen -- --target=thumbv8m.main-none-eabihf
+        cargo run --release stm32-bindings-gen
     }
     "download-all" {
         rm -r -Force ./sources/ -ErrorAction SilentlyContinue
-        git clone https://github.com/STMicroelectronics/STM32CubeWBA.git ./sources/
-        cd ./sources/
-        git checkout $REV
+        git clone --branch $REV https://github.com/STMicroelectronics/STM32CubeWBA.git ./sources/STM32CubeWBA/ --depth 1 -q
         cd ..
     }
     default {

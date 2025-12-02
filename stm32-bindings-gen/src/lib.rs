@@ -17,6 +17,7 @@ const STD_TO_CORE_REPLACEMENTS: &[(&str, &str)] = &[
 #[derive(Debug, Clone, Copy)]
 struct BindingSpec {
     module: &'static str,
+    feature: Option<&'static str>,
     header: &'static str,
     include_dirs: &'static [&'static str],
     clang_args: &'static [&'static str],
@@ -33,26 +34,27 @@ struct LibraryArtifact {
 
 const BINDING_SPECS: &[BindingSpec] = &[
     BindingSpec {
-        module: "mac_802_15_4",
-        header: "stm32-bindings-gen/inc/wpan-wba.h",
+        module: "wba_wpan_mac",
+        feature: Some("wba_wpan_mac"),
+        header: "stm32-bindings-gen/inc/wba_wpan_mac.h",
         include_dirs: &[
+            "Middlewares/ST/STM32_WPAN",
             "Middlewares/ST/STM32_WPAN/mac_802_15_4/core/inc",
             "Middlewares/ST/STM32_WPAN/mac_802_15_4/mac_utilities/inc",
-            "Middlewares/ST/STM32_WPAN",
-            "Drivers/CMSIS/Core/Include",
+            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc",
             "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/_40nm_reg_files",
+            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/ot_inc",
             "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config",
             "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config/ieee_15_4_basic",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/ot_inc",
+            "Drivers/CMSIS/Core/Include",
         ],
         clang_args: &["-DSUPPORT_MAC=1", "-DMAC=1", "-DMAC_LAYER=1"],
         allowlist: &[],
-        aliases: &["mac", "wpan_wba"],
+        aliases: &["mac", "mac_802_15_4", "wpan_wba"],
         library_artifacts: &[
             LibraryArtifact {
                 source: "Middlewares/ST/STM32_WPAN/mac_802_15_4/lib",
-                destination: "src/lib/mac",
+                destination: "src/lib/wba_wpan_mac",
             },
             LibraryArtifact {
                 source: "Middlewares/ST/STM32_WPAN/mac_802_15_4/lib/wba_mac_lib.a",
@@ -66,20 +68,21 @@ const BINDING_SPECS: &[BindingSpec] = &[
     },
     BindingSpec {
         module: "ble_stack",
+        feature: Some("wba_wpan_ble"),
         header: "stm32-bindings-gen/inc/ble-wba.h",
         include_dirs: &[
+            "Middlewares/ST/STM32_WPAN",
             "Middlewares/ST/STM32_WPAN/ble/stack/include",
             "Middlewares/ST/STM32_WPAN/ble/stack/include/auto",
-            "Middlewares/ST/STM32_WPAN",
-            "Drivers/CMSIS/Core/Include",
+            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc",
             "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/_40nm_reg_files",
+            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/ot_inc",
             "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config",
             "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/config/ble_basic_plus",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc",
-            "Middlewares/ST/STM32_WPAN/link_layer/ll_cmd_lib/inc/ot_inc",
             "Middlewares/ST/STM32_WPAN/ble/audio/Inc",
             "Middlewares/ST/STM32_WPAN/ble/codec/codec_manager/Inc",
             "Middlewares/ST/STM32_WPAN/ble/codec/lc3/Inc",
+            "Drivers/CMSIS/Core/Include",
         ],
         clang_args: &["-DBLE=1", "-DSUPPORT_BLE=1", "-DEXT_ADDRESS_LENGTH=8"],
         allowlist: &[],
@@ -162,13 +165,19 @@ impl Gen {
 
         let mut modules = Vec::new();
         let mut aliases = Vec::new();
+
         for spec in BINDING_SPECS {
             println!("  -> generating `{}` bindings", spec.module);
             self.generate_bindings_for_spec(spec);
             self.copy_artifacts_for_spec(spec);
-            modules.push(spec.module.to_owned());
+
+            modules.push((spec.module.to_owned(), spec.feature.map(str::to_owned)));
             for alias in spec.aliases {
-                aliases.push((spec.module.to_owned(), alias.to_string()));
+                aliases.push((
+                    spec.module.to_owned(),
+                    alias.to_string(),
+                    spec.feature.map(str::to_owned),
+                ));
             }
         }
 
@@ -188,16 +197,26 @@ impl Gen {
         self.write_bytes("src/lib.rs", include_bytes!("../res/src/lib.rs"));
     }
 
-    fn write_bindings_mod(&self, modules: &[String], aliases: &[(String, String)]) {
+    fn write_bindings_mod(
+        &self,
+        modules: &[(String, Option<String>)],
+        aliases: &[(String, String, Option<String>)],
+    ) {
         let mut body = String::new();
-        for module in modules {
+        for (module, feature) in modules {
+            if let Some(feature) = feature {
+                body.push_str(&format!("#[cfg(feature = \"{feature}\")]\n"));
+            }
             body.push_str("pub mod ");
             body.push_str(module);
             body.push_str(";\n");
         }
         if !aliases.is_empty() {
             body.push('\n');
-            for (module, alias) in aliases {
+            for (module, alias, feature) in aliases {
+                if let Some(feature) = feature {
+                    body.push_str(&format!("#[cfg(feature = \"{feature}\")]\n"));
+                }
                 body.push_str("pub use self::");
                 body.push_str(module);
                 body.push_str(" as ");
@@ -273,9 +292,8 @@ impl Gen {
                 self.copy_file(&src, &dst)
                     .unwrap_or_else(|err| panic!("Failed to copy file {}: {err}", src.display()));
             } else if src.is_dir() {
-                self.copy_dir(&src, &dst).unwrap_or_else(|err| {
-                    panic!("Failed to copy directory {}: {err}", src.display())
-                });
+                self.copy_dir(&src, &dst)
+                    .unwrap_or_else(|err| panic!("Failed to copy dir {}: {err}", src.display()));
             } else {
                 panic!(
                     "Artifact source {} is neither file nor directory",
@@ -345,7 +363,7 @@ impl Gen {
             contents = contents.replace(from, to);
         }
 
-        let normalized = contents
+        contents
             .lines()
             .map(|line| {
                 if let Some(rest) = line.strip_prefix("pub const ") {
@@ -357,9 +375,7 @@ impl Gen {
                 line.to_owned()
             })
             .collect::<Vec<_>>()
-            .join("\n");
-
-        normalized
+            .join("\n")
     }
 
     fn is_thumb_target(triple: &str) -> bool {
