@@ -84,7 +84,16 @@ const BINDING_SPECS: &[BindingSpec] = &[
             "Middlewares/ST/STM32_WPAN/ble/codec/lc3/Inc",
             "Drivers/CMSIS/Core/Include",
         ],
-        clang_args: &["-DBLE=1", "-DSUPPORT_BLE=1", "-DEXT_ADDRESS_LENGTH=8"],
+        clang_args: &[
+            "-DBLE=1",
+            "-DBLE_LL=1",
+            "-DMAC=1",
+            "-DMAC_LAYER=1",
+            "-DSUPPORT_CONFIG_LIB=1",
+            "-DSUPPORT_OPENTHREAD_1_2=1",
+            "-DSUPPORT_ANT_DIV=1",
+            "-DEXT_ADDRESS_LENGTH=8",
+        ],
         allowlist: &[],
         aliases: &["ble", "ble_wba"],
         library_artifacts: &[

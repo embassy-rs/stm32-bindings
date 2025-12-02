@@ -4,7 +4,7 @@ use stm32_bindings_gen::{Gen, Options};
 
 fn main() {
     let out_dir = PathBuf::from("build/stm32-bindings");
-    let sources_dir = PathBuf::from("sources");
+    let sources_dir = resolve_sources_dir();
     let target_triple = resolve_target_triple();
 
     let opts = Options {
@@ -14,6 +14,16 @@ fn main() {
     };
 
     Gen::new(opts).run_gen();
+}
+
+fn resolve_sources_dir() -> PathBuf {
+    let nested = PathBuf::from("sources/STM32CubeWBA");
+
+    if nested.exists() {
+        nested
+    } else {
+        PathBuf::from("sources")
+    }
 }
 
 #[allow(dead_code)]
