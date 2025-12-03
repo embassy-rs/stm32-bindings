@@ -1,6 +1,6 @@
 [package]
 name = "stm32-bindings"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/stm32-data"
@@ -10,6 +10,8 @@ description = "Peripheral Access Crate (PAC) for all STM32 chips, including meta
 include = [
     "**/*.rs",
     "**/*.x",
+    "**/*.a",
+    "**/*.lib",
     "Cargo.toml",
     "README.md",
 ]
