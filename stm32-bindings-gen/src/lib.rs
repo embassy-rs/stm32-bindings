@@ -313,10 +313,10 @@ impl Gen {
             let dst = self.opts.out_dir.join(artifact.destination);
 
             if src.is_file() {
-                self.copy_file(&src, &dst, true)
+                self.copy_lib(&src, &dst)
                     .unwrap_or_else(|err| panic!("Failed to copy file {}: {err}", src.display()));
             } else if src.is_dir() {
-                self.copy_dir(&src, &dst, true)
+                self.copy_lib_dir(&src, &dst)
                     .unwrap_or_else(|err| panic!("Failed to copy dir {}: {err}", src.display()));
             } else {
                 panic!(
@@ -357,24 +357,28 @@ impl Gen {
         }
     }
 
-    fn copy_file(&self, src: &Path, dst: &Path, is_library: bool) -> io::Result<()> {
+    fn copy_lib(&self, src: &Path, dst: &Path) -> io::Result<()> {
         if let Some(parent) = dst.parent() {
             fs::create_dir_all(parent)?;
         }
 
-        let dst = if is_library {
-            dst.parent()
-                .unwrap()
-                .join("lib".to_owned() + dst.file_name().unwrap().to_str().unwrap())
-        } else {
-            dst.to_path_buf()
-        };
+        let file_name = "lib".to_string()
+            + dst
+                .file_name()
+                .ok_or(io::Error::new(io::ErrorKind::InvalidFilename, ""))?
+                .to_str()
+                .ok_or(io::Error::new(io::ErrorKind::InvalidFilename, ""))?;
+
+        let dst = dst
+            .parent()
+            .unwrap_or(&Path::new(""))
+            .join(file_name.to_ascii_lowercase());
 
         fs::copy(src, dst)?;
         Ok(())
     }
 
-    fn copy_dir(&self, src: &Path, dst: &Path, is_library: bool) -> io::Result<()> {
+    fn copy_lib_dir(&self, src: &Path, dst: &Path) -> io::Result<()> {
         if !dst.exists() {
             fs::create_dir_all(dst)?;
         }
@@ -383,9 +387,9 @@ impl Gen {
             let path = entry.path();
             let target = dst.join(entry.file_name());
             if path.is_dir() {
-                self.copy_dir(&path, &target, is_library)?;
+                self.copy_lib_dir(&path, &target)?;
             } else {
-                self.copy_file(&path, &target, is_library)?;
+                self.copy_lib(&path, &target)?;
             }
         }
         Ok(())

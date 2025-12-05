@@ -20,8 +20,8 @@ fn main() {
 
     add_dir(&lib_dir).unwrap();
 
-    // TODO: link libraries based on features
-
-    println!("cargo:rustc-link-lib=wba_mac_lib");
-    println!("cargo:rustc-link-lib=WBA5_LinkLayer15_4");
+    env::vars()
+        .filter_map(|(a, _)| a.strip_prefix("CARGO_FEATURE_LIB_").map(|a| a.to_string()))
+        .map(|a| a.to_ascii_lowercase())
+        .for_each(|a| println!("cargo:rustc-link-lib=static={}", a));
 }
