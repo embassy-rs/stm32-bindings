@@ -313,10 +313,10 @@ impl Gen {
             let dst = self.opts.out_dir.join(artifact.destination);
 
             if src.is_file() {
-                self.copy_file(&src, &dst)
+                self.copy_file(&src, &dst, true)
                     .unwrap_or_else(|err| panic!("Failed to copy file {}: {err}", src.display()));
             } else if src.is_dir() {
-                self.copy_dir(&src, &dst)
+                self.copy_dir(&src, &dst, true)
                     .unwrap_or_else(|err| panic!("Failed to copy dir {}: {err}", src.display()));
             } else {
                 panic!(
@@ -357,15 +357,24 @@ impl Gen {
         }
     }
 
-    fn copy_file(&self, src: &Path, dst: &Path) -> io::Result<()> {
+    fn copy_file(&self, src: &Path, dst: &Path, is_library: bool) -> io::Result<()> {
         if let Some(parent) = dst.parent() {
             fs::create_dir_all(parent)?;
         }
+
+        let dst = if is_library {
+            dst.parent()
+                .unwrap()
+                .join("lib".to_owned() + dst.file_name().unwrap().to_str().unwrap())
+        } else {
+            dst.to_path_buf()
+        };
+
         fs::copy(src, dst)?;
         Ok(())
     }
 
-    fn copy_dir(&self, src: &Path, dst: &Path) -> io::Result<()> {
+    fn copy_dir(&self, src: &Path, dst: &Path, is_library: bool) -> io::Result<()> {
         if !dst.exists() {
             fs::create_dir_all(dst)?;
         }
@@ -374,9 +383,9 @@ impl Gen {
             let path = entry.path();
             let target = dst.join(entry.file_name());
             if path.is_dir() {
-                self.copy_dir(&path, &target)?;
+                self.copy_dir(&path, &target, is_library)?;
             } else {
-                self.copy_file(&path, &target)?;
+                self.copy_file(&path, &target, is_library)?;
             }
         }
         Ok(())
