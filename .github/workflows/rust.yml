@@ -31,8 +31,19 @@ jobs:
         run: chmod +x d
       - name: Load sources
         run: ./d download-all
+      - name: Install Rust targets
+        run: rustup target add thumbv8m.main-none-eabihf thumbv7em-none-eabi thumbv6m-none-eabi
+      - name: Run tests
+        run: cargo test --workspace --all-targets
       - name: Run build
         run: cargo run --release --bin stm32-bindings-gen
+      - name: Check generated crate targets
+        run: |
+          cd build/stm32-bindings
+          for target in thumbv7em-none-eabi thumbv6m-none-eabi; do
+            echo "Checking target $target"
+            cargo check --target "$target" --no-default-features --features pac
+          done
       - name: Run package build
         run: |
           cd build/stm32-bindings
