@@ -22,3 +22,4 @@
 #include "ll_sys.h"
 #include "ll_version.h"
 #include "ll_intf_cmn.h"
+#include "power_table.h"
