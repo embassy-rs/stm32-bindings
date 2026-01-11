@@ -326,6 +326,7 @@ impl Gen {
         }
 
         let bindings = builder
+            .layout_tests(false)
             .generate()
             .unwrap_or_else(|err| panic!("Unable to generate bindings for {}: {err}", spec.module));
 
