@@ -2,7 +2,7 @@ use bindgen::callbacks::{ItemInfo, ItemKind, ParseCallbacks};
 use lazy_regex::regex;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::ffi::OsStr;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -287,6 +287,19 @@ fn host_isystem_args() -> Vec<String> {
 /// Removes matching functions
 struct ForeignFnsRemover<'a> {
     regex: &'a regex::Regex,
+    removed_funcs: &'a mut HashSet<String>,
+}
+
+impl<'a> ForeignFnsRemover<'a> {
+    fn check_match(&mut self, haystack: &str) -> bool {
+        if self.regex.is_match(haystack) {
+            self.removed_funcs.insert(haystack.to_string());
+
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl<'a> Fold for ForeignFnsRemover<'a> {
@@ -297,8 +310,7 @@ impl<'a> Fold for ForeignFnsRemover<'a> {
         // Then filter out matching functions
         node.items.retain(|item| {
             if let ForeignItem::Fn(ForeignItemFn { sig, .. }) = item {
-                let name = sig.ident.to_string();
-                !self.regex.is_match(&name)
+                !self.check_match(&sig.ident.to_string())
             } else {
                 true
             }
@@ -310,20 +322,18 @@ impl<'a> Fold for ForeignFnsRemover<'a> {
 
 /// Transforms the functions to uppercase
 struct LinkNameAttrAdder<'a> {
-    regex: &'a regex::Regex,
+    removed_funcs: &'a mut HashSet<String>,
 }
 
 impl<'a> Fold for LinkNameAttrAdder<'a> {
     fn fold_foreign_item_fn(&mut self, mut func: ForeignItemFn) -> ForeignItemFn {
-        let fn_name = func.sig.ident.to_string();
+        let fn_name = func.sig.ident.to_string().to_uppercase();
         // Only add if not already present
         if !func.attrs.iter().any(|a| a.path().is_ident("link_name"))
-            && self.regex.is_match(&fn_name)
+            && self.removed_funcs.contains(&fn_name)
         {
-            let link_name_value = fn_name.to_uppercase();
-
             func.attrs.push(syn::parse_quote!(
-                #[link_name = #link_name_value]
+                #[link_name = #fn_name]
             ));
         }
 
@@ -496,12 +506,16 @@ impl Gen {
             .join(format!("{}.rs", spec.module));
 
         let file = syn::parse_file(&bindings.to_string()).unwrap();
-        let file = LinkNameAttrAdder {
-            regex: &*regex!("^(aci|hal|hci)_.*"),
-        }
-        .fold_file(file);
+        let mut removed_funcs = HashSet::<String>::new();
+
         let file = ForeignFnsRemover {
             regex: &*regex!("^(ACI|HAL|HCI)_.*"),
+            removed_funcs: &mut removed_funcs,
+        }
+        .fold_file(file);
+
+        let file = LinkNameAttrAdder {
+            removed_funcs: &mut removed_funcs,
         }
         .fold_file(file);
 
