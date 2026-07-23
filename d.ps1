@@ -8,10 +8,45 @@ param (
 
 $WBA_REV = ((Select-String -Path ".\d" -Pattern "^WBA_REV=") -split "=")[1]
 $WB_REV = ((Select-String -Path ".\d" -Pattern "^WB_REV=") -split "=")[1]
+$XCUBE_IP_REV = ((Select-String -Path ".\d" -Pattern "^XCUBE_IP_REV=") -split "=")[1]
+
+function Fetch-NemaGfx {
+    $tmp = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath() + [System.Guid]::NewGuid()) -Force
+    git clone https://github.com/STMicroelectronics/x-cube-image-processing.git "$tmp" --depth 1
+    Push-Location $tmp
+    git fetch origin $XCUBE_IP_REV 2>$null
+    git checkout FETCH_HEAD 2>$null
+    if ($LASTEXITCODE -ne 0) { git checkout $XCUBE_IP_REV 2>$null }
+    if ($LASTEXITCODE -ne 0) { git checkout main }
+    Pop-Location
+
+    Remove-Item -Recurse -Force ./stm32-bindings-gen/nema_gfx/include -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path ./stm32-bindings-gen/nema_gfx/include, ./stm32-bindings-gen/nema_gfx/lib | Out-Null
+    Copy-Item -Recurse "$tmp/Middleware/NemaGFX/include/*" ./stm32-bindings-gen/nema_gfx/include/
+    Copy-Item "$tmp/Middleware/NemaGFX/LICENSE.md" ./stm32-bindings-gen/nema_gfx/LICENSE.md
+    @(
+        "x-cube-image-processing $XCUBE_IP_REV",
+        "NemaGFX middleware v1.4.17"
+    ) | Set-Content ./stm32-bindings-gen/nema_gfx/VERSION
+
+    $pairs = @{
+        "cortex_m33_revC" = "cortex_m33_revc"
+        "cortex_m33_NemaPVG" = "cortex_m33_nemapvg"
+        "cortex_m7" = "cortex_m7"
+        "cortex_m55" = "cortex_m55"
+    }
+    foreach ($entry in $pairs.GetEnumerator()) {
+        Copy-Item "$tmp/Middleware/NemaGFX/lib/core/$($entry.Key)/gcc/libnemagfx-float-abi-hard.a" `
+            "./stm32-bindings-gen/nema_gfx/lib/libnemagfx_$($entry.Value)_float_abi_hard.a"
+    }
+
+    Remove-Item -Recurse -Force $tmp
+    Write-Host "NemaGFX headers and libraries updated under stm32-bindings-gen/nema_gfx/"
+}
 
 Switch ($CMD) {
     "gen" {
-        cargo run --release
+        cargo run --release --bin stm32-bindings-gen
     }
     "download-all" {
         while (Test-Path "sources") {
@@ -43,6 +78,9 @@ Switch ($CMD) {
         cmake --build build
 
         cd ../..
+    }
+    "fetch-nema-gfx" {
+        Fetch-NemaGfx
     }
     default {
         echo "unknown command"

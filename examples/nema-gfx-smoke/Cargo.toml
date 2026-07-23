@@ -1,0 +1,30 @@
+[package]
+name = "nema-gfx-smoke"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "nema-gfx-smoke"
+test = false
+bench = false
+
+[dependencies]
+cortex-m = "0.7.7"
+cortex-m-rt = "0.7.5"
+stm32-bindings = { path = "../../build/stm32-bindings", default-features = false, features = [
+    "nema_gfx",
+    "lib_nemagfx_cortex_m55_float_abi_hard",
+] }
+nema-gfx-hal = { path = "../../nema-gfx-hal", default-features = false, features = [
+    "stub",
+    "stm32n6",
+] }
+
+[profile.release]
+panic = "abort"
+debug = true
+opt-level = 2
+
+[profile.dev]
+panic = "abort"

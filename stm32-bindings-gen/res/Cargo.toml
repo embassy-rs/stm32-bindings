@@ -45,6 +45,9 @@ flavors = [
     { regex_feature = "stm32wba.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32wl.*", target = "thumbv7em-none-eabi" },
+    { regex_feature = "stm32n6.*", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "stm32h7r.*", target = "thumbv7em-none-eabihf" },
+    { regex_feature = "stm32h7s.*", target = "thumbv7em-none-eabihf" },
 ]
 
 [dependencies]
@@ -62,7 +65,7 @@ wba_wpan_ble_uuid = []
 wba_wpan_ble_svc = []
 wba_wpan_openthread = []
 wb_wpan_openthread = []
-n6_ai_runtime = []
+nema_gfx = []
 
 # Build the actual PAC. Set by default.
 # If you just want the metadata, unset it with `default-features = false`. 
@@ -112,3 +115,15 @@ lib_stm32wb_ot_mtd_lib = []
 lib_lc3 = []
 lib_codec_mngr = []
 lib_ble_audio = []
+
+# NemaGFX prebuilt libraries (pick exactly one core variant when linking).
+lib_nemagfx_cortex_m33_revc_float_abi_hard = []
+lib_nemagfx_cortex_m33_nemapvg_float_abi_hard = []
+lib_nemagfx_cortex_m7_float_abi_hard = []
+lib_nemagfx_cortex_m55_float_abi_hard = []
+
+# NemaGFX / NeoChrom presets (module + matching prebuilt library).
+neochrom-m33-revc = ["nema_gfx", "lib_nemagfx_cortex_m33_revc_float_abi_hard"]
+neochrom-m33-nemapvg = ["nema_gfx", "lib_nemagfx_cortex_m33_nemapvg_float_abi_hard"]
+neochrom-m7 = ["nema_gfx", "lib_nemagfx_cortex_m7_float_abi_hard"]
+neochrom-m55 = ["nema_gfx", "lib_nemagfx_cortex_m55_float_abi_hard"]

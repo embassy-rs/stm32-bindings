@@ -1,0 +1,20 @@
+[package]
+name = "nema-gfx-hal"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0 OR BSD-3-Clause"
+description = "Platform HAL glue for ST NemaGFX (NeoChrom GPU)."
+repository = "https://github.com/embassy-rs/stm32-bindings"
+readme = "README.md"
+
+[features]
+default = ["stub"]
+## Link the in-tree GPU2D HAL stub (CI / link smoke tests).
+stub = []
+## Select the CPU core variant (informational; all use the same bare-metal HAL today).
+stm32n6 = []
+stm32u5 = []
+stm32h7rs = []
+
+[build-dependencies]
+cc = "1.2"

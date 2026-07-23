@@ -2,9 +2,11 @@
 resolver = "2"
 members = [
     "stm32-bindings-gen",
+    "nema-gfx-hal",
 ]
 exclude = [
-    "build"
+    "build",
+    "examples",
 ]
 
 # Optimize for dev experience: shortest "build+run" time after making a small change.

@@ -18,6 +18,7 @@ enum Directory {
     Sources(&'static str),
     #[allow(dead_code)]
     Build(&'static str),
+    Vendored(&'static str),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -247,6 +248,21 @@ const BINDING_SPECS: &[BindingSpec] = &[
             destination: "src/lib/openthread/stm32wb_ot_mtd_lib.a",
         }],
     },
+    BindingSpec {
+        module: "nema_gfx",
+        feature: Some("nema_gfx"),
+        header: "stm32-bindings-gen/inc/nema_gfx.h",
+        root: Directory::Vendored("nema_gfx"),
+        target_triple: "thumbv8m.main-none-eabihf",
+        include_dirs: &["include"],
+        clang_args: &["-mcpu=cortex-m55"],
+        allowlist: &[],
+        aliases: &["nemagfx"],
+        library_artifacts: &[LibraryArtifact {
+            source: "lib",
+            destination: "src/lib/nema_gfx",
+        }],
+    },
 ];
 
 #[derive(Debug)]
@@ -359,6 +375,7 @@ impl Gen {
             let sources_dir = match spec.root {
                 Directory::Build(dir) => self.opts.build_dir.join(dir),
                 Directory::Sources(dir) => self.opts.sources_dir.join(dir),
+                Directory::Vendored(dir) => Path::new(env!("CARGO_MANIFEST_DIR")).join(dir),
             };
 
             self.generate_bindings_for_spec(spec, &sources_dir);
