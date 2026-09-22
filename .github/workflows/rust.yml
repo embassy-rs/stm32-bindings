@@ -36,7 +36,8 @@ jobs:
         run: chmod +x d
 
       - name: Load sources
-        run: ./d download-all
+        run: |
+          ./d download-all
 
       - name: Build thread
         run: ./d build-thread
@@ -60,6 +61,13 @@ jobs:
             echo "Checking target $target"
             cargo check --target "$target" --no-default-features --features pac
           done
+
+      - name: Check NemaGFX bindings
+        run: |
+          cd build/stm32-bindings
+          cargo check --target thumbv8m.main-none-eabihf --no-default-features --features nema_gfx,lib_nemagfx_cortex_m55_float_abi_hard
+          cargo check --target thumbv8m.main-none-eabihf --no-default-features --features nema_gfx,lib_nemagfx_cortex_m33_revc_float_abi_hard
+          cargo check --target thumbv7em-none-eabihf --no-default-features --features nema_gfx,lib_nemagfx_cortex_m7_float_abi_hard
 
       - name: Run package build
         run: |
@@ -96,7 +104,8 @@ jobs:
         run: chmod +x d
 
       - name: Load sources
-        run: ./d download-all
+        run: |
+          ./d download-all
 
       - name: Build thread
         run: ./d build-thread
