@@ -20,6 +20,20 @@ fn main() {
 
     add_dir(&lib_dir).unwrap();
 
+    let nemagfx_libs: Vec<String> = env::vars()
+        .filter_map(|(key, _)| {
+            key.strip_prefix("CARGO_FEATURE_LIB_NEMAGFX_")
+                .map(|suffix| suffix.to_ascii_lowercase())
+        })
+        .collect();
+
+    if nemagfx_libs.len() > 1 {
+        panic!(
+            "Exactly one NemaGFX library feature may be enabled; got: {nemagfx_libs:?}. \
+             Use a neochrom-* preset or a single lib_nemagfx_* feature."
+        );
+    }
+
     env::vars()
         .filter_map(|(a, _)| a.strip_prefix("CARGO_FEATURE_LIB_").map(|a| a.to_string()))
         .map(|a| a.to_ascii_lowercase())
