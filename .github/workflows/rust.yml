@@ -72,12 +72,6 @@ jobs:
           name: crate
           path: build/stm32-bindings/target/package/*.crate
 
-      - name: Upload thread lib
-        uses: actions/upload-artifact@v5
-        with:
-          name: thread-lib
-          path: build/thread/build/*.a
-
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
