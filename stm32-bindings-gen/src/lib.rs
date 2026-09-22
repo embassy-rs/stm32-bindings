@@ -265,6 +265,12 @@ impl ParseCallbacks for UppercaseCallbacks {
 pub struct Options {
     pub build_dir: PathBuf,
     pub sources_dir: PathBuf,
+    /// Delete generated static libraries that no `lib_*` feature references.
+    ///
+    /// This keeps the packaged crate within crates.io's upload limit. The
+    /// default (`false`) keeps every copied library, which is what local
+    /// development and generated-crate checks want.
+    pub prune_unused_libs: bool,
 }
 
 fn host_isystem_args() -> Vec<String> {
@@ -375,6 +381,10 @@ impl Gen {
         }
 
         self.write_bindings_mod(&modules, &aliases);
+
+        if self.opts.prune_unused_libs {
+            self.prune_unused_libs();
+        }
     }
 
     fn build_dir(&self) -> PathBuf {
@@ -640,6 +650,115 @@ impl Gen {
     fn is_thumb_target(triple: &str) -> bool {
         triple.trim().to_ascii_lowercase().starts_with("thumb")
     }
+
+    /// Deletes copied static libraries that no `lib_*` feature references.
+    ///
+    /// `res/build.rs` turns every `lib_<name>` feature into
+    /// `-l static=<name>` (lowercased), so a feature `lib_foo` requires an
+    /// archive named `libfoo.a`. Anything else in `src/lib` can never be
+    /// selected by a user and only bloats the published crate.
+    fn prune_unused_libs(&self) {
+        let manifest_path = self.build_dir().join("Cargo.toml");
+        let manifest = fs::read_to_string(&manifest_path)
+            .unwrap_or_else(|err| panic!("Unable to read {}: {err}", manifest_path.display()));
+
+        let expected = expected_lib_filenames(&manifest);
+        if expected.is_empty() {
+            panic!(
+                "Refusing to prune libraries: no `lib_*` features found in {}",
+                manifest_path.display()
+            );
+        }
+
+        let lib_dir = self.build_dir().join("src/lib");
+        let mut kept = 0usize;
+        let mut removed = 0usize;
+        let mut removed_bytes = 0u64;
+
+        for path in collect_archives(&lib_dir) {
+            let file_name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_ascii_lowercase())
+                .unwrap_or_default();
+
+            if expected.contains(&file_name) {
+                kept += 1;
+                continue;
+            }
+
+            removed_bytes += fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+            fs::remove_file(&path)
+                .unwrap_or_else(|err| panic!("Unable to remove {}: {err}", path.display()));
+            removed += 1;
+        }
+
+        remove_empty_dirs(&lib_dir);
+
+        println!(
+            "  -> pruned {removed} unused static libraries ({removed_bytes} bytes), kept {kept}"
+        );
+
+        if kept == 0 {
+            panic!("No static libraries remain after pruning; refusing to produce an empty crate");
+        }
+    }
+}
+
+/// Returns the archive names (lowercase `lib*.a`) required by the `lib_*`
+/// features declared in the generated `Cargo.toml`.
+fn expected_lib_filenames(manifest: &str) -> BTreeSet<String> {
+    let mut expected = BTreeSet::new();
+
+    for line in manifest.lines() {
+        let Some(rest) = line.trim().strip_prefix("lib_") else {
+            continue;
+        };
+        let Some((name, _)) = rest.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        if !name.is_empty() {
+            expected.insert(format!("lib{}.a", name.to_ascii_lowercase()));
+        }
+    }
+
+    expected
+}
+
+/// Recursively collects every `.a` archive below `dir`.
+fn collect_archives(dir: &Path) -> Vec<PathBuf> {
+    let mut archives = Vec::new();
+
+    let Ok(entries) = fs::read_dir(dir) else {
+        return archives;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            archives.extend(collect_archives(&path));
+        } else if path.extension().is_some_and(|ext| ext == OsStr::new("a")) {
+            archives.push(path);
+        }
+    }
+
+    archives
+}
+
+/// Removes directories that became empty after pruning. `remove_dir` fails on
+/// non-empty directories, which is the behaviour we want, so errors are ignored.
+fn remove_empty_dirs(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            remove_empty_dirs(&path);
+            let _ = fs::remove_dir(&path);
+        }
+    }
 }
 
 fn arm_sysroot_args() -> Vec<String> {
@@ -798,4 +917,74 @@ fn gcc_query(args: &[&str]) -> Option<String> {
             None
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expected_lib_filenames_maps_features_to_archives() {
+        let manifest = "\
+[features]
+default = [\"pac\"]
+pac = []
+lib_linklayer_ble_full_v3_0 = []
+lib_lc3 = []
+lib_stm32wb_ot_mtd_lib = []
+wba_wpan = []
+";
+        let expected = expected_lib_filenames(manifest);
+
+        assert!(expected.contains("liblinklayer_ble_full_v3_0.a"));
+        assert!(expected.contains("liblc3.a"));
+        assert!(expected.contains("libstm32wb_ot_mtd_lib.a"));
+        assert_eq!(expected.len(), 3);
+    }
+
+    #[test]
+    fn expected_lib_filenames_ignores_non_lib_features() {
+        let manifest = "\
+[features]
+default = [\"pac\"]
+pac = []
+wba_wpan = []
+wba_wpan_openthread = []
+metadata = []
+defmt = [\"dep:defmt\"]
+";
+        assert!(expected_lib_filenames(manifest).is_empty());
+    }
+
+    #[test]
+    fn prune_unused_libs_removes_only_unreferenced_archives() {
+        let tmp = tempfile::tempdir().unwrap();
+        let build_dir = tmp.path();
+        let crate_dir = build_dir.join("stm32-bindings");
+        let link_layer = crate_dir.join("src/lib/link_layer");
+        let openthread = crate_dir.join("src/lib/openthread");
+
+        std::fs::create_dir_all(&link_layer).unwrap();
+        std::fs::create_dir_all(&openthread).unwrap();
+        std::fs::write(
+            crate_dir.join("Cargo.toml"),
+            "[features]\nlib_linklayer_ble_full_v3_0 = []\n",
+        )
+        .unwrap();
+        std::fs::write(link_layer.join("liblinklayer_ble_full_v3_0.a"), b"keep").unwrap();
+        std::fs::write(link_layer.join("libstm32wba_ot_ftd_lib.a"), b"drop").unwrap();
+        std::fs::write(openthread.join("libstm32wba_ot_mtd_lib.a"), b"drop").unwrap();
+
+        let generator = Gen::new(Options {
+            build_dir: build_dir.to_path_buf(),
+            sources_dir: build_dir.to_path_buf(),
+            prune_unused_libs: true,
+        });
+        generator.prune_unused_libs();
+
+        assert!(link_layer.join("liblinklayer_ble_full_v3_0.a").exists());
+        assert!(!link_layer.join("libstm32wba_ot_ftd_lib.a").exists());
+        assert!(!openthread.join("libstm32wba_ot_mtd_lib.a").exists());
+        assert!(!openthread.exists(), "empty directories should be removed");
+    }
 }
