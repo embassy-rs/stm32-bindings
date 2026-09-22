@@ -23,6 +23,13 @@ struct Cli {
     /// If given, only build this module
     #[arg(long, default_value = None)]
     module: Option<String>,
+
+    /// Delete generated static libraries that no `lib_*` feature references.
+    ///
+    /// Use this before packaging/publishing so the crate stays within
+    /// crates.io's upload size limit. Opt-in: local builds keep every library.
+    #[arg(long, default_value_t = false)]
+    prune_unused_libs: bool,
 }
 
 fn main() {
@@ -31,6 +38,7 @@ fn main() {
     let opts = Options {
         build_dir: args.build_dir,
         sources_dir: args.sources_dir,
+        prune_unused_libs: args.prune_unused_libs,
     };
 
     Gen::new(opts).run_gen(&args.module);

@@ -48,7 +48,7 @@ jobs:
         run: cargo test --workspace --all-targets
 
       - name: Run build
-        run: cargo run --release --bin stm32-bindings-gen
+        run: cargo run --release --bin stm32-bindings-gen -- --prune-unused-libs
 
       - name: Check generated crate targets
         run: |
@@ -102,7 +102,7 @@ jobs:
         run: ./d build-thread
 
       - name: Generate crate
-        run: cargo run --release --bin stm32-bindings-gen
+        run: cargo run --release --bin stm32-bindings-gen -- --prune-unused-libs
 
       - name: Authenticate to crates.io
         id: auth

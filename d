@@ -4,7 +4,7 @@ set -e
 cd $(dirname $0)
 
 CMD=$1
-WBA_REV=v1.9.0
+WBA_REV=v1.10.0
 WB_REV=v1.24.0
 shift
 
