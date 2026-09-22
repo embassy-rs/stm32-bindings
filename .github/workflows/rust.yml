@@ -3,6 +3,8 @@ name: Rust
 on:
   push:
     branches: ["main"]
+    tags:
+      - "v*"
   pull_request:
     branches: ["main"]
 
@@ -15,6 +17,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+
       - name: ⚡ Cache
         uses: actions/cache@v5
         with:
@@ -23,41 +26,96 @@ jobs:
             ~/.cargo/git
             target
           key: ${{ runner.os }}-cargo
+
       - name: Install ARM GCC toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi
+
       - name: Set permissions
         run: chmod +x d
+
       - name: Load sources
         run: ./d download-all
+
       - name: Build thread
         run: ./d build-thread
+
       - name: Install Rust targets
         run: rustup target add thumbv8m.main-none-eabihf thumbv7em-none-eabi thumbv6m-none-eabi
+
       - name: Run tests
         run: cargo test --workspace --all-targets
+
       - name: Run build
         run: cargo run --release --bin stm32-bindings-gen
+
       - name: Check generated crate targets
         run: |
           cd build/stm32-bindings
-          for target in thumbv7em-none-eabi thumbv6m-none-eabi thumbv8m.main-none-eabihf; do
+          for target in \
+            thumbv7em-none-eabi \
+            thumbv6m-none-eabi \
+            thumbv8m.main-none-eabihf; do
             echo "Checking target $target"
             cargo check --target "$target" --no-default-features --features pac
           done
+
       - name: Run package build
         run: |
           cd build/stm32-bindings
-          cargo package --target thumbv8m.main-none-eabihf
+          cargo package --allow-dirty
+
       - name: Upload package build
         uses: actions/upload-artifact@v5
         with:
           name: crate
           path: build/stm32-bindings/target/package/*.crate
+
       - name: Upload thread lib
         uses: actions/upload-artifact@v5
         with:
           name: thread-lib
           path: build/thread/build/*.a
 
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    # Must match the environment configured in crates.io
+    environment: release
+
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install ARM GCC toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi
+
+      - name: Set permissions
+        run: chmod +x d
+
+      - name: Load sources
+        run: ./d download-all
+
+      - name: Build thread
+        run: ./d build-thread
+
+      - name: Generate crate
+        run: cargo run --release --bin stm32-bindings-gen
+
+      - name: Authenticate to crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish
+        working-directory: build/stm32-bindings
+        run: cargo publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
